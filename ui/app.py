@@ -132,58 +132,9 @@ with tab_reviewer:
 with tab_pr:
     pr_container = st.container()
 
-# ── Streaming loop ────────────────────────────────────────────────────────────
-if st.session_state.streaming:
-    try:
-        for event in stream_run(run_id):
-            st.session_state.events.append(event)
-
-            # Update run state from events
-            if event.get("status"):
-                st.session_state.run_state["status"] = event["status"]
-            if event.get("iteration"):
-                st.session_state.run_state["iteration"] = event["iteration"]
-
-            event_type = event.get("event_type", "")
-            agent = event.get("agent", "")
-            payload = event.get("payload") or {}
-
-            if event_type == "agent_complete":
-                if agent == "planner":
-                    st.session_state.run_state["planner_output"] = payload
-                elif agent == "coder":
-                    st.session_state.run_state["coder_output"] = payload
-                elif agent == "reviewer":
-                    st.session_state.run_state["reviewer_output"] = payload
-
-            if event_type == "run_complete":
-                st.session_state.run_state["pr_url"] = payload.get("pr_url")
-                st.session_state.run_state["branch_name"] = payload.get("branch_name")
-                st.session_state.run_state["status"] = "complete"
-                # Update history
-                for entry in st.session_state.history:
-                    if entry["run_id"] == run_id:
-                        entry["status"] = "complete"
-                        entry["pr_url"] = payload.get("pr_url")
-                st.session_state.streaming = False
-
-            if event_type in ("error", "stream_end"):
-                if event_type == "error":
-                    st.session_state.run_state["status"] = "failed"
-                    for entry in st.session_state.history:
-                        if entry["run_id"] == run_id:
-                            entry["status"] = "failed"
-                st.session_state.streaming = False
-
-            st.rerun()
-
-    except Exception as exc:
-        st.error(f"Stream error: {exc}")
-        st.session_state.streaming = False
-
-# ── Render current state ──────────────────────────────────────────────────────
+# ── Render current state (always) ────────────────────────────────────────────
 with feed_container:
-    if not st.session_state.events:
+    if not st.session_state.events and not st.session_state.streaming:
         st.info("Waiting for events...")
     for event in st.session_state.events:
         if event.get("event_type") != "stream_end":
@@ -210,3 +161,60 @@ with pr_container:
         pr_url=st.session_state.run_state.get("pr_url"),
         branch_name=st.session_state.run_state.get("branch_name"),
     )
+
+# ── Streaming loop ────────────────────────────────────────────────────────────
+if st.session_state.streaming:
+    status_placeholder = st.empty()
+    status_placeholder.info("⚙️ FORGE pipeline running — waiting for first event...")
+    try:
+        for event in stream_run(run_id):
+            status_placeholder.empty()
+            st.session_state.events.append(event)
+
+            # Update run state from events
+            if event.get("status"):
+                st.session_state.run_state["status"] = event["status"]
+            if event.get("iteration"):
+                st.session_state.run_state["iteration"] = event["iteration"]
+
+            event_type = event.get("event_type", "")
+            agent = event.get("agent", "")
+            payload = event.get("payload") or {}
+
+            if event_type == "agent_complete":
+                if agent == "planner":
+                    st.session_state.run_state["planner_output"] = payload
+                elif agent == "coder":
+                    st.session_state.run_state["coder_output"] = payload
+                elif agent == "reviewer":
+                    st.session_state.run_state["reviewer_output"] = payload
+
+            if event_type == "run_complete":
+                st.session_state.run_state["pr_url"] = payload.get("pr_url")
+                st.session_state.run_state["branch_name"] = payload.get("branch_name")
+                st.session_state.run_state["status"] = "complete"
+                for entry in st.session_state.history:
+                    if entry["run_id"] == run_id:
+                        entry["status"] = "complete"
+                        entry["pr_url"] = payload.get("pr_url")
+                st.session_state.streaming = False
+
+            if event_type in ("error", "stream_end"):
+                if event_type == "error":
+                    st.session_state.run_state["status"] = "failed"
+                    for entry in st.session_state.history:
+                        if entry["run_id"] == run_id:
+                            entry["status"] = "failed"
+                st.session_state.streaming = False
+
+            # Render each event live into the feed as it arrives
+            if event_type not in ("stream_end",):
+                with feed_container:
+                    render_event(event)
+
+        # Final rerun to refresh status bar, tabs, sidebar history
+        st.rerun()
+
+    except Exception as exc:
+        st.error(f"Stream error: {exc}")
+        st.session_state.streaming = False

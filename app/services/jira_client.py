@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from atlassian import Jira
+import httpx
 
 from app.models.jira import JiraTicket
 
@@ -16,16 +16,24 @@ class JiraTicketNotFound(Exception):
 
 class JiraClient:
     def __init__(self, settings: "Settings") -> None:
-        self._client = Jira(
-            url=settings.jira_url,
-            username=settings.jira_username,
-            password=settings.jira_api_token,
-            cloud=True,
-        )
+        self._base_url = settings.jira_url.rstrip("/")
+        self._auth = (settings.jira_username, settings.jira_api_token)
 
     async def fetch_ticket(self, ticket_id: str) -> JiraTicket:
+        url = f"{self._base_url}/rest/api/3/issue/{ticket_id}"
         try:
-            issue = self._client.issue(ticket_id)
+            async with httpx.AsyncClient(verify=False, timeout=30) as client:
+                response = await client.get(
+                    url,
+                    auth=self._auth,
+                    headers={"Accept": "application/json"},
+                )
+            if response.status_code == 404:
+                raise JiraTicketNotFound(f"Ticket {ticket_id} not found (404)")
+            response.raise_for_status()
+            issue = response.json()
+        except JiraTicketNotFound:
+            raise
         except Exception as exc:
             raise JiraTicketNotFound(f"Ticket {ticket_id} not found: {exc}") from exc
 
@@ -45,13 +53,15 @@ class JiraClient:
 
         labels: list[str] = fields.get("labels", [])
 
-        # Pull comment bodies (max 20)
+        # Pull comment bodies (max 20) — body may be ADF dict or plain string
         comments_data = fields.get("comment", {}).get("comments", [])
-        comments = [
-            c.get("body", "")
-            for c in comments_data[-20:]
-            if c.get("body")
-        ]
+        comments = []
+        for c in comments_data[-20:]:
+            body = c.get("body", "")
+            if isinstance(body, dict):
+                body = _extract_adf_text(body)
+            if body:
+                comments.append(body)
 
         description = fields.get("description") or ""
         # Jira Cloud returns ADF (Atlassian Document Format) objects; extract plain text if needed

@@ -1,6 +1,6 @@
 fastapi==0.115.0
 uvicorn[standard]==0.30.6
-anthropic==0.43.0
+openai>=1.35.0
 pydantic==2.9.2
 pydantic-settings==2.5.2
 atlassian-python-api==3.41.16

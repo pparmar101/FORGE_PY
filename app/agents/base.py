@@ -4,7 +4,7 @@ import json
 import re
 from typing import TYPE_CHECKING, TypeVar
 
-import anthropic
+import openai
 from pydantic import BaseModel
 
 if TYPE_CHECKING:
@@ -16,9 +16,9 @@ T = TypeVar("T", bound=BaseModel)
 class BaseAgent:
     def __init__(self, settings: "Settings") -> None:
         self.settings = settings
-        self.model = settings.claude_model
-        self.max_tokens = settings.claude_max_tokens
-        self.client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+        self.model = settings.openai_model
+        self.max_tokens = settings.openai_max_tokens
+        self.client = openai.AsyncOpenAI(api_key=settings.openai_api_key)
 
     async def _call_structured(
         self,
@@ -34,15 +34,30 @@ class BaseAgent:
             f"Schema:\n{schema}"
         )
 
-        response = await self.client.messages.create(
+        response = await self.client.chat.completions.create(
             model=self.model,
-            max_tokens=self.max_tokens,
-            system=full_system,
-            messages=[{"role": "user", "content": user_content}],
+            max_completion_tokens=self.max_tokens,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": full_system},
+                {"role": "user", "content": user_content},
+            ],
         )
 
-        raw = response.content[0].text.strip()
-        # Strip accidental markdown fences if Claude adds them despite instructions
+        finish_reason = response.choices[0].finish_reason
+        content = response.choices[0].message.content
+        if not content:
+            raise ValueError(
+                f"Model returned empty response for {output_model.__name__}. "
+                f"Finish reason: {finish_reason}"
+            )
+        if finish_reason == "length":
+            raise ValueError(
+                f"Model response truncated (hit token limit) for {output_model.__name__}. "
+                f"Increase OPENAI_MAX_TOKENS (currently {self.max_tokens})."
+            )
+        raw = content.strip()
+        # Strip accidental markdown fences if the model adds them despite instructions
         raw = _strip_json_fences(raw)
         return output_model.model_validate_json(raw)
 

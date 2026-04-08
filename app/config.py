@@ -14,8 +14,8 @@ class Settings(BaseSettings):
         case_sensitive=False,
     )
 
-    # Anthropic
-    anthropic_api_key: str
+    # OpenAI
+    openai_api_key: str
 
     # Jira
     jira_url: str
@@ -48,9 +48,9 @@ class Settings(BaseSettings):
     api_port: int = 8000
     cors_origins: list[str] = ["http://localhost:8501"]
 
-    # Claude Model
-    claude_model: str = "claude-sonnet-4-6"
-    claude_max_tokens: int = 8192
+    # OpenAI Model
+    openai_model: str = "gpt-4.5-preview"
+    openai_max_tokens: int = 32768
 
     # Orchestrator
     max_coder_iterations: int = 2
