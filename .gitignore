@@ -1,0 +1,20 @@
+.env
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+
+# FORGE workspace — cloned target repos
+/tmp/forge_workspace/
+forge_workspace/
+
+# Streamlit
+.streamlit/secrets.toml
