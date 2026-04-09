@@ -170,9 +170,11 @@ class GitService:
 
             try:
                 content = path.read_text(encoding="utf-8", errors="replace")
-                # Truncate very large files to avoid blowing the context window
-                if len(content) > 8000:
-                    content = content[:8000] + "\n... [truncated] ..."
+                # Truncate only very large files — 8000 was too small and caused
+                # the coder to regenerate files with missing code (silent deletions).
+                # 40000 chars (~10k tokens) is safe with a 32k token model budget.
+                if len(content) > 40000:
+                    content = content[:40000] + "\n... [truncated — file too large, only modify the section relevant to the plan] ..."
                 parts.append(f"### {impacted.path}\n```\n{content}\n```\n")
             except Exception as exc:
                 parts.append(f"### {impacted.path}\n(Could not read: {exc})\n")
