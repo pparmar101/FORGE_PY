@@ -14,6 +14,7 @@ from app.models.reviewer import ReviewerOutput
 class RunStatus(str, Enum):
     PENDING = "pending"
     FETCHING_TICKET = "fetching_ticket"
+    INDEXING = "indexing"
     PLANNING = "planning"
     CODING = "coding"
     REVIEWING = "reviewing"

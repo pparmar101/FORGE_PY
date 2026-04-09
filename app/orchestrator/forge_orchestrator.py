@@ -63,13 +63,14 @@ class ForgeOrchestrator:
             planner_rag_context = ""
             rag = None
             if self.settings.rag_enabled:
+                state.status = RunStatus.INDEXING
                 await emit(RunEvent(event_type="status_change", agent="system",
-                                    status=RunStatus.FETCHING_TICKET,
+                                    status=RunStatus.INDEXING,
                                     payload={"message": "Indexing repo for RAG (first run may take a moment)..."}))
                 rag = RAGService(self.settings, self.git.workspace)
                 indexed = await asyncio.to_thread(rag.index_repo)
                 await emit(RunEvent(event_type="status_change", agent="system",
-                                    status=RunStatus.FETCHING_TICKET,
+                                    status=RunStatus.INDEXING,
                                     payload={"message": f"RAG index ready — {indexed} chunks indexed."}))
                 planner_rag_query = f"{ticket.summary}\n{ticket.description}"
                 planner_rag_context = await asyncio.to_thread(rag.query, planner_rag_query)
@@ -148,18 +149,19 @@ class ForgeOrchestrator:
             state.branch_name = branch_name
 
             self.git.create_branch(repo, branch_name)
-            self.git.apply_code_changes(repo, code.code_changes)
+            self.git.apply_code_changes(repo, _filter_safe_changes(code.code_changes))
 
-            # Apply test files alongside code changes
+            # Apply test files alongside code changes (never apply project files)
             for test in code.tests:
                 from app.models.coder import FileChange
-                test_change = FileChange(
-                    file_path=test.file_path,
-                    operation="create",
-                    content=test.test_content,
-                    diff_summary=f"Add unit test: {test.file_path}",
-                )
-                self.git.apply_code_changes(repo, [test_change])
+                if not _is_project_file(test.file_path):
+                    test_change = FileChange(
+                        file_path=test.file_path,
+                        operation="create",
+                        content=test.test_content,
+                        diff_summary=f"Add unit test: {test.file_path}",
+                    )
+                    self.git.apply_code_changes(repo, [test_change])
 
             self.git.commit_changes(repo, code.commits)
             self.git.push_branch(repo, branch_name)
@@ -253,6 +255,30 @@ def _validate_impacted_files(plan, workspace):
 
     plan.developer_notes.impacted_files = validated
     return plan
+
+
+_PROJECT_FILE_EXTENSIONS = {
+    ".csproj", ".vbproj", ".fsproj", ".sln",
+    ".vcxproj", ".njsproj", ".pyproj",
+}
+
+
+def _is_project_file(file_path: str) -> bool:
+    """Return True if the file is a project/solution file that should never be modified."""
+    from pathlib import Path
+    return Path(file_path).suffix.lower() in _PROJECT_FILE_EXTENSIONS
+
+
+def _filter_safe_changes(changes):
+    """Strip out any .csproj/.sln changes the coder produced — these break builds when AI-modified."""
+    safe = [c for c in changes if not _is_project_file(c.file_path)]
+    skipped = [c.file_path for c in changes if _is_project_file(c.file_path)]
+    if skipped:
+        import logging
+        logging.getLogger(__name__).warning(
+            "FORGE blocked modification of project files: %s", skipped
+        )
+    return safe
 
 
 def _branch_name(ticket_id: str) -> str:

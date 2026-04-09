@@ -4,6 +4,7 @@ import streamlit as st
 
 STEPS = [
     ("fetching_ticket", "Fetch Ticket"),
+    ("indexing", "Index RAG"),
     ("planning", "Plan"),
     ("coding", "Code"),
     ("reviewing", "Review"),
@@ -15,6 +16,7 @@ STEPS = [
 STATUS_COLORS = {
     "pending": "gray",
     "fetching_ticket": "blue",
+    "indexing": "blue",
     "planning": "blue",
     "coding": "orange",
     "reviewing": "violet",
@@ -27,9 +29,10 @@ STATUS_COLORS = {
 STATUS_ICONS = {
     "pending": "⏳",
     "fetching_ticket": "🔍",
+    "indexing": "📚",
     "planning": "🧠",
     "coding": "👨‍💻",
-    "reviewing": "🔍",
+    "reviewing": "🔎",
     "applying": "⚙️",
     "creating_pr": "🔀",
     "complete": "✅",

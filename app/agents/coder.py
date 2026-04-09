@@ -23,6 +23,20 @@ Rules:
 - For each FileChange, provide the FULL file content after the change (not just a diff).
 - For deleted files, set content to null.
 
+CRITICAL — Never remove existing code:
+- When modifying a file, you MUST preserve ALL existing methods, properties, fields, and using statements.
+- Only ADD new code or modify the specific lines described in the plan.
+- If the file shown in repo context appears incomplete (truncated), assume the rest of the file
+  exists unchanged and include it in your output exactly as-is up to the truncation point,
+  then append your new additions.
+- Never delete or omit existing methods even if they seem unused or unrelated to the plan.
+
+CRITICAL — Never modify project/solution files:
+- Do NOT include .csproj, .vbproj, .sln, .fsproj, or any other project/solution files in code_changes.
+- Do NOT modify package.json, tsconfig.json, webpack.config.js, or any build configuration files
+  unless the plan explicitly requires it.
+- Test files (.cs test classes) are allowed but must NOT be accompanied by .csproj modifications.
+
 Your output will be applied directly to a git repository."""
 
 
