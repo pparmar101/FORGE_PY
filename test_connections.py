@@ -61,10 +61,10 @@ print("\n--- Testing Bitbucket ---")
 if not BITBUCKET_WORKSPACE:
     print("[SKIP] BITBUCKET_WORKSPACE not set in env file.")
 else:
-    # Determine auth method
+    # Determine auth method — try username+token first (matches bitbucket_client.py)
     if BITBUCKET_ACCESS_TOKEN:
-        print("     Auth method  : Basic auth x-token-auth (BITBUCKET_ACCESS_TOKEN)")
-        bb_auth    = ("x-token-auth", BITBUCKET_ACCESS_TOKEN)
+        print("     Auth method  : Basic auth (BITBUCKET_USERNAME + BITBUCKET_ACCESS_TOKEN)")
+        bb_auth    = (BITBUCKET_USERNAME, BITBUCKET_ACCESS_TOKEN)
         bb_headers = {}
     elif BITBUCKET_APP_PASSWORD:
         print("     Auth method  : Basic auth (BITBUCKET_USERNAME + BITBUCKET_APP_PASSWORD)")
@@ -98,6 +98,27 @@ else:
                 print(f"     Repo        : {data['full_name']}")
                 print(f"     Private     : {data.get('is_private')}")
                 print(f"     Main branch : {data.get('mainbranch', {}).get('name', 'unknown')}")
+
+                # ── Test PR creation endpoint (dry-run: will 400 if branch doesn't exist)
+                print("\n     [PR Auth Test] Checking PR creation endpoint auth...")
+                pr_resp = httpx.post(
+                    f"https://api.bitbucket.org/2.0/repositories/{BITBUCKET_WORKSPACE}/{BITBUCKET_REPO_SLUG}/pullrequests",
+                    json={
+                        "title": "FORGE auth test (will fail on branch)",
+                        "source": {"branch": {"name": "forge/test-does-not-exist"}},
+                        "destination": {"branch": {"name": cfg.get("DEFAULT_BASE_BRANCH", "main")}},
+                    },
+                    auth=bb_auth, headers=bb_headers, timeout=10,
+                )
+                if pr_resp.status_code in (400, 422):
+                    print(f"[OK] PR endpoint auth OK (HTTP {pr_resp.status_code} = branch not found, auth passed)")
+                elif pr_resp.status_code == 201:
+                    print("[OK] PR created (unexpected — test branch exists?)")
+                elif pr_resp.status_code == 401:
+                    print(f"[FAIL] PR endpoint returned 401 Unauthorized — check token has pullrequest:write scope")
+                    print(f"       Response: {pr_resp.text[:300]}")
+                else:
+                    print(f"     PR endpoint HTTP {pr_resp.status_code}: {pr_resp.text[:200]}")
             else:
                 print(f"     /repo body  : {repo_resp.text[:200]}")
                 print("[FAIL] Bitbucket repo access failed.")

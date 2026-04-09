@@ -90,8 +90,31 @@ class GitService:
             repo.index.commit(commit_record.message)
 
     def push_branch(self, repo: git.Repo, branch_name: str) -> None:
-        """Push the feature branch to origin."""
-        repo.remotes.origin.push(branch_name)
+        """Push the feature branch to origin, injecting credentials when available.
+
+        Uses git's http.extraHeader to pass a Base64-encoded Basic auth token,
+        which avoids URL-parsing issues caused by special characters (e.g. '@')
+        in Bitbucket usernames / email addresses.
+        """
+        import base64
+
+        if self.settings.git_platform == "github" and self.settings.github_token:
+            # GitHub: embed token in URL (no @ in username so safe)
+            push_url = (
+                f"https://x-token-auth:{self.settings.github_token}@github.com/"
+                f"{self.settings.github_owner}/{self.settings.github_repo}.git"
+            )
+            repo.git.push(push_url, branch_name)
+        elif self.settings.git_platform == "bitbucket" and self.settings.bitbucket_workspace:
+            # Bitbucket: use SSH to avoid HTTPS credential prompts entirely.
+            # SSH key ~/.ssh/id_ed25519_bitbucket must be registered on the Bitbucket account.
+            ssh_url = (
+                f"git@bitbucket.org:"
+                f"{self.settings.bitbucket_workspace}/{self.settings.bitbucket_repo_slug}.git"
+            )
+            repo.git.push(ssh_url, branch_name)
+        else:
+            repo.git.push("origin", branch_name)
 
     def get_repo_structure(self, max_files: int = 300) -> str:
         """

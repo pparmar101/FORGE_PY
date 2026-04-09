@@ -16,8 +16,10 @@ Rules:
 - Keep changes minimal and safe — do not modify files unrelated to the plan.
 - Add proper error handling for all new code paths.
 - Do not break existing functionality.
-- Commit messages must use the format: type(JIRA-ID): short description
-  (types: feat, fix, refactor, test, chore)
+- Commit messages MUST use the format: type(TICKET-ID): short description
+  where TICKET-ID is the exact Jira ticket ID provided in the input (e.g. HACPM-162535).
+  Types: feat, fix, refactor, test, chore.
+  Example: feat(HACPM-162535): add unpublish endpoint for alternate hierarchy
 - For each FileChange, provide the FULL file content after the change (not just a diff).
 - For deleted files, set content to null.
 
@@ -35,8 +37,9 @@ class CoderAgent(BaseAgent):
         feedback: str | None = None,
         iteration: int = 1,
         rag_context: str = "",
+        ticket_id: str = "",
     ) -> CoderOutput:
-        user_content = _format_input(plan, repo_context, feedback, iteration, rag_context)
+        user_content = _format_input(plan, repo_context, feedback, iteration, rag_context, ticket_id)
         return await self._call_structured(
             system_prompt=SYSTEM_PROMPT,
             user_content=user_content,
@@ -50,6 +53,7 @@ def _format_input(
     feedback: str | None,
     iteration: int,
     rag_context: str = "",
+    ticket_id: str = "",
 ) -> str:
     feedback_section = ""
     if feedback and iteration > 1:
@@ -75,10 +79,13 @@ Use them to understand existing patterns, conventions, and related logic:
 
 """
 
-    return f"""{feedback_section}=== ENGINEERING PLAN ===
+    ticket_line = f"Jira Ticket ID: {ticket_id}\n" if ticket_id else ""
+
+    return f"""{feedback_section}{ticket_line}=== ENGINEERING PLAN ===
 {plan.model_dump_json(indent=2)}
 
 === REPOSITORY CONTEXT (Impacted Files) ===
 {repo_context if repo_context else "(No repo context available — this may be a new repository)"}
 
-{rag_section}Implement the code changes described in the plan. Apply reviewer feedback if provided."""
+{rag_section}Implement the code changes described in the plan. Apply reviewer feedback if provided.
+IMPORTANT: Every commit message MUST include the ticket ID '{ticket_id}' in the format: type({ticket_id}): description"""

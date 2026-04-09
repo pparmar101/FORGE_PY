@@ -109,7 +109,7 @@ class ForgeOrchestrator:
                 await emit(_status_event(RunStatus.CODING, "coder", iteration))
                 state.status = RunStatus.CODING
 
-                code = await self.coder.run(plan, repo_context, feedback, iteration, rag_context=coder_rag_context)
+                code = await self.coder.run(plan, repo_context, feedback, iteration, rag_context=coder_rag_context, ticket_id=ticket_id)
                 state.coder_output = code
                 await emit(RunEvent(
                     event_type="agent_complete",
@@ -256,8 +256,13 @@ def _validate_impacted_files(plan, workspace):
 
 
 def _branch_name(ticket_id: str) -> str:
-    """Convert PROJ-123 → user/raswani/PROJ_123."""
+    """Convert PROJ-123 → user/raswani/PROJ_123_YYYYMMDD_HHMM.
+    Timestamp suffix ensures each FORGE run gets a unique branch,
+    preserving previous runs rather than overwriting them.
+    """
+    from datetime import datetime
+    ts = datetime.now().strftime("%Y%m%d_%H%M")
     parts = ticket_id.upper().split("-", 1)
     if len(parts) == 2:
-        return f"user/raswani/{parts[0]}_{parts[1]}"
-    return f"user/raswani/{ticket_id.upper()}"
+        return f"user/raswani/{parts[0]}_{parts[1]}_{ts}"
+    return f"user/raswani/{ticket_id.upper()}_{ts}"
