@@ -79,13 +79,22 @@ async def _event_generator(
     state: RunState, queue: asyncio.Queue | None
 ) -> AsyncGenerator[str, None]:
     # Replay already-received events
-    for event in list(state.events):
+    replayed = list(state.events)
+    for event in replayed:
         yield _sse(event.model_dump_json())
 
     # If run is already complete/failed, stop here
     if state.status in (RunStatus.COMPLETE, RunStatus.FAILED):
         yield _sse('{"event_type": "stream_end"}')
         return
+
+    # Drain replayed events from the queue to avoid sending them twice
+    # (emit() puts every event in both state.events and the queue)
+    for _ in range(len(replayed)):
+        try:
+            queue.get_nowait()
+        except asyncio.QueueEmpty:
+            break
 
     # Tail new events from the queue
     if queue is None:
