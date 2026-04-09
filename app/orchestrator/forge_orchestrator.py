@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import re
 from datetime import datetime
-from typing import AsyncGenerator
 
 from app.agents.coder import CoderAgent
 from app.agents.planner import PlannerAgent
@@ -14,6 +13,7 @@ from app.models.reviewer import ReviewerOutput
 from app.services.git_service import GitService
 from app.services.jira_client import JiraClient
 from app.services.pr_factory import get_pr_client
+from app.services.rag_service import RAGService
 
 
 class ForgeOrchestrator:
@@ -49,11 +49,30 @@ class ForgeOrchestrator:
 
             ticket = await self.jira.fetch_ticket(ticket_id)
 
-            # ── Step 2: Planner ───────────────────────────────────────────────
+            # ── Step 2: Clone/open repo first (planner needs repo structure) ───
+            repo = self.git.clone_or_open()
+            repo_structure = await asyncio.to_thread(self.git.get_repo_structure)
+
+            # ── Step 3: RAG index + query for planner context ─────────────────
+            planner_rag_context = ""
+            rag = None
+            if self.settings.rag_enabled:
+                await emit(RunEvent(event_type="status_change", agent="system",
+                                    status=RunStatus.FETCHING_TICKET,
+                                    payload={"message": "Indexing repo for RAG (first run may take a moment)..."}))
+                rag = RAGService(self.settings, self.git.workspace)
+                indexed = await asyncio.to_thread(rag.index_repo)
+                await emit(RunEvent(event_type="status_change", agent="system",
+                                    status=RunStatus.FETCHING_TICKET,
+                                    payload={"message": f"RAG index ready — {indexed} chunks indexed."}))
+                planner_rag_query = f"{ticket.summary}\n{ticket.description}"
+                planner_rag_context = await asyncio.to_thread(rag.query, planner_rag_query)
+
+            # ── Step 4: Planner (with repo structure + RAG context) ───────────
             await emit(_status_event(RunStatus.PLANNING, "planner"))
             state.status = RunStatus.PLANNING
 
-            plan = await self.planner.run(ticket)
+            plan = await self.planner.run(ticket, repo_structure=repo_structure, rag_context=planner_rag_context)
             state.planner_output = plan
             await emit(RunEvent(
                 event_type="agent_complete",
@@ -61,11 +80,17 @@ class ForgeOrchestrator:
                 payload=plan.model_dump(),
             ))
 
-            # ── Step 3: Clone/open repo + gather context ──────────────────────
-            repo = self.git.clone_or_open()
-            repo_context = self.git.get_repo_context(repo, plan.developer_notes.impacted_files)
+            # ── Step 5: Validate impacted file paths against real repo ─────────
+            plan = _validate_impacted_files(plan, self.git.workspace)
 
-            # ── Step 4: Coder → Reviewer feedback loop ────────────────────────
+            # ── Step 6: Gather file context + coder RAG query ─────────────────
+            repo_context = self.git.get_repo_context(repo, plan.developer_notes.impacted_files)
+            coder_rag_context = ""
+            if rag is not None:
+                coder_rag_query = f"{ticket.summary}\n{ticket.description}\n{plan.model_dump_json()}"
+                coder_rag_context = await asyncio.to_thread(rag.query, coder_rag_query)
+
+            # ── Step 7: Coder → Reviewer feedback loop ────────────────────────
             code = None
             review = None
             feedback: str | None = None
@@ -78,7 +103,7 @@ class ForgeOrchestrator:
                 await emit(_status_event(RunStatus.CODING, "coder", iteration))
                 state.status = RunStatus.CODING
 
-                code = await self.coder.run(plan, repo_context, feedback, iteration)
+                code = await self.coder.run(plan, repo_context, feedback, iteration, rag_context=coder_rag_context)
                 state.coder_output = code
                 await emit(RunEvent(
                     event_type="agent_complete",
@@ -204,7 +229,29 @@ def _format_feedback(review: ReviewerOutput) -> str:
     return "\n\n".join(lines)
 
 
+def _validate_impacted_files(plan, workspace):
+    """
+    Remove impacted files whose paths don't exist in the repo
+    AND aren't plausible new files (i.e. their parent directory doesn't exist).
+    Prevents the coder from writing to hallucinated paths.
+    """
+    validated = []
+    for f in plan.developer_notes.impacted_files:
+        full_path = workspace / f.path
+        parent_exists = full_path.parent.exists()
+        file_exists = full_path.exists()
+        # Keep if file exists OR if it's a plausible new file (parent dir exists)
+        if file_exists or parent_exists:
+            validated.append(f)
+        # else: silently drop hallucinated path
+
+    plan.developer_notes.impacted_files = validated
+    return plan
+
+
 def _branch_name(ticket_id: str) -> str:
-    """Convert PROJ-123 → feature/proj-123."""
-    slug = re.sub(r"[^a-zA-Z0-9-]", "-", ticket_id).lower().strip("-")
-    return f"feature/{slug}"
+    """Convert PROJ-123 → user/raswani/PROJ_123."""
+    parts = ticket_id.upper().split("-", 1)
+    if len(parts) == 2:
+        return f"user/raswani/{parts[0]}_{parts[1]}"
+    return f"user/raswani/{ticket_id.upper()}"

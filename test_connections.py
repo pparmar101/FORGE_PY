@@ -63,9 +63,9 @@ if not BITBUCKET_WORKSPACE:
 else:
     # Determine auth method
     if BITBUCKET_ACCESS_TOKEN:
-        print("     Auth method  : Bearer token (BITBUCKET_ACCESS_TOKEN)")
-        bb_auth    = None
-        bb_headers = {"Authorization": f"Bearer {BITBUCKET_ACCESS_TOKEN}"}
+        print("     Auth method  : Basic auth x-token-auth (BITBUCKET_ACCESS_TOKEN)")
+        bb_auth    = ("x-token-auth", BITBUCKET_ACCESS_TOKEN)
+        bb_headers = {}
     elif BITBUCKET_APP_PASSWORD:
         print("     Auth method  : Basic auth (BITBUCKET_USERNAME + BITBUCKET_APP_PASSWORD)")
         bb_auth    = (BITBUCKET_USERNAME, BITBUCKET_APP_PASSWORD)

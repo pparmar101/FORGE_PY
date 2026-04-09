@@ -55,6 +55,10 @@ class Settings(BaseSettings):
     # Orchestrator
     max_coder_iterations: int = 2
 
+    # RAG
+    rag_enabled: bool = True
+    rag_top_k: int = 8
+
     @field_validator("cors_origins", mode="before")
     @classmethod
     def parse_cors_origins(cls, v: str | list[str]) -> list[str]:

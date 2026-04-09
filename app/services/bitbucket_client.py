@@ -15,13 +15,13 @@ class BitbucketClient:
         self.settings = settings
         self._base = settings.bitbucket_api_base
 
-        # Auth: prefer single Bearer token, fall back to Basic (username + app password)
+        # Build list of auth methods to try in order
+        self._auth_options: list[tuple[str, str]] = []
         if settings.bitbucket_access_token:
-            self._auth = None
-            self._headers = {"Authorization": f"Bearer {settings.bitbucket_access_token}"}
-        else:
-            self._auth = (settings.bitbucket_username, settings.bitbucket_app_password)
-            self._headers = {}
+            self._auth_options.append(("x-token-auth", settings.bitbucket_access_token))
+            self._auth_options.append((settings.bitbucket_username, settings.bitbucket_access_token))
+        if settings.bitbucket_app_password:
+            self._auth_options.append((settings.bitbucket_username, settings.bitbucket_app_password))
 
     async def create_pull_request(
         self,
@@ -39,13 +39,25 @@ class BitbucketClient:
         }
 
         async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"{self._base}/pullrequests",
-                json=payload,
-                auth=self._auth,          # None when using Bearer token
-                headers=self._headers,    # has Authorization header if Bearer token
-                timeout=30,
-            )
+            last_status = None
+            for auth in self._auth_options:
+                response = await client.post(
+                    f"{self._base}/pullrequests",
+                    json=payload,
+                    auth=auth,
+                    timeout=30,
+                )
+                last_status = response.status_code
+                if response.status_code != 401:
+                    break
+
+            if response.status_code == 401:
+                raise ValueError(
+                    f"Bitbucket auth failed (401) with all credential options. "
+                    f"Please create a Bitbucket App Password at "
+                    f"https://bitbucket.org/account/settings/app-passwords "
+                    f"and set BITBUCKET_APP_PASSWORD in .env"
+                )
             response.raise_for_status()
             data = response.json()
 

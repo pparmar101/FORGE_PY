@@ -34,8 +34,9 @@ class CoderAgent(BaseAgent):
         repo_context: str,
         feedback: str | None = None,
         iteration: int = 1,
+        rag_context: str = "",
     ) -> CoderOutput:
-        user_content = _format_input(plan, repo_context, feedback, iteration)
+        user_content = _format_input(plan, repo_context, feedback, iteration, rag_context)
         return await self._call_structured(
             system_prompt=SYSTEM_PROMPT,
             user_content=user_content,
@@ -48,6 +49,7 @@ def _format_input(
     repo_context: str,
     feedback: str | None,
     iteration: int,
+    rag_context: str = "",
 ) -> str:
     feedback_section = ""
     if feedback and iteration > 1:
@@ -61,10 +63,22 @@ Please address ALL issues below in your revised implementation:
 
 """
 
+    rag_section = ""
+    if rag_context:
+        rag_section = f"""
+=== RETRIEVED CODE CONTEXT (RAG) ===
+The following snippets from the codebase are semantically relevant to this ticket.
+Use them to understand existing patterns, conventions, and related logic:
+
+{rag_context}
+=== END RETRIEVED CODE CONTEXT ===
+
+"""
+
     return f"""{feedback_section}=== ENGINEERING PLAN ===
 {plan.model_dump_json(indent=2)}
 
-=== REPOSITORY CONTEXT ===
+=== REPOSITORY CONTEXT (Impacted Files) ===
 {repo_context if repo_context else "(No repo context available — this may be a new repository)"}
 
-Implement the code changes described in the plan. Apply reviewer feedback if provided."""
+{rag_section}Implement the code changes described in the plan. Apply reviewer feedback if provided."""

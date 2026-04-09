@@ -18,26 +18,38 @@ class GitService:
         self.settings = settings
         self.workspace = Path(settings.target_repo_local_path)
 
+    def _is_local_path(self) -> bool:
+        """Return True if the target repo URL is a local filesystem path."""
+        url = self.settings.target_repo_url
+        return not url.startswith(("http://", "https://", "git@", "ssh://"))
+
     def clone_or_open(self) -> git.Repo:
-        """Clone the target repo if not already present, otherwise open it."""
+        """Open local repo directly, or clone remote repo if not already present."""
+        if self._is_local_path():
+            # Local path — open repo, searching parent dirs for .git if needed
+            return git.Repo(self.workspace, search_parent_directories=True)
+
         if (self.workspace / ".git").exists():
             repo = git.Repo(self.workspace)
-            # Fetch latest from origin
             repo.remotes.origin.fetch()
             return repo
 
         self.workspace.mkdir(parents=True, exist_ok=True)
-        repo = git.Repo.clone_from(
-            self.settings.target_repo_url,
-            self.workspace,
-        )
+        repo = git.Repo.clone_from(self.settings.target_repo_url, self.workspace)
         return repo
 
     def create_branch(self, repo: git.Repo, branch_name: str) -> None:
         """Checkout base branch then create and switch to a new feature branch."""
         base = self.settings.default_base_branch
         repo.git.checkout(base)
-        repo.git.pull("origin", base)
+        try:
+            repo.git.pull("origin", base)
+        except Exception:
+            pass  # no remote or offline — continue with local state
+        # Delete local branch if it already exists from a previous run
+        existing = [b.name for b in repo.branches]
+        if branch_name in existing:
+            repo.git.branch("-D", branch_name)
         repo.git.checkout("-b", branch_name)
 
     def apply_code_changes(self, repo: git.Repo, changes: list[FileChange]) -> None:
@@ -80,6 +92,34 @@ class GitService:
     def push_branch(self, repo: git.Repo, branch_name: str) -> None:
         """Push the feature branch to origin."""
         repo.remotes.origin.push(branch_name)
+
+    def get_repo_structure(self, max_files: int = 300) -> str:
+        """
+        Walk the repo and return a compact file tree string for stack detection.
+        Skips build artefacts and dependency directories.
+        """
+        skip_dirs = {
+            ".git", "node_modules", "__pycache__", ".venv", "venv",
+            "bin", "obj", "dist", "build", ".idea", ".vs", "packages",
+            "TestResults", ".forge_rag",
+        }
+        lines: list[str] = []
+        count = 0
+        for root, dirs, files in os.walk(self.workspace):
+            dirs[:] = [d for d in dirs if d not in skip_dirs]
+            rel_root = os.path.relpath(root, self.workspace)
+            depth = rel_root.count(os.sep)
+            indent = "  " * depth
+            folder = os.path.basename(root)
+            if rel_root != ".":
+                lines.append(f"{indent}{folder}/")
+            for fname in files:
+                lines.append(f"{'  ' * (depth + 1)}{fname}")
+                count += 1
+                if count >= max_files:
+                    lines.append("  ... (truncated)")
+                    return "\n".join(lines)
+        return "\n".join(lines)
 
     def get_repo_context(
         self, repo: git.Repo, impacted_files: list[ImpactedFile]
