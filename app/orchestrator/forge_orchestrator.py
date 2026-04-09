@@ -48,6 +48,12 @@ class ForgeOrchestrator:
             state.status = RunStatus.FETCHING_TICKET
 
             ticket = await self.jira.fetch_ticket(ticket_id)
+            state.ticket = ticket.model_dump()
+            await emit(RunEvent(
+                event_type="ticket_fetched",
+                agent="system",
+                payload=ticket.model_dump(),
+            ))
 
             # ── Step 2: Clone/open repo first (planner needs repo structure) ───
             repo = self.git.clone_or_open()

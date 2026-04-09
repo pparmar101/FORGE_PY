@@ -17,6 +17,7 @@ from ui.components.agent_output import (
     render_planner_tab,
     render_pr_tab,
     render_reviewer_tab,
+    render_ticket_tab,
 )
 from ui.components.chat_panel import render_event
 from ui.components.run_status import render_status_bar
@@ -113,12 +114,15 @@ render_status_bar(current_status, iteration)
 st.divider()
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
-tab_feed, tab_planner, tab_coder, tab_reviewer, tab_pr = st.tabs(
-    ["📡 Live Feed", "🧠 Planner", "👨‍💻 Coder", "🔍 Reviewer", "🔀 PR"]
+tab_feed, tab_ticket, tab_planner, tab_coder, tab_reviewer, tab_pr = st.tabs(
+    ["📡 Live Feed", "🎫 Ticket", "🧠 Planner", "👨‍💻 Coder", "🔍 Reviewer", "🔀 PR"]
 )
 
 with tab_feed:
     feed_container = st.container()
+
+with tab_ticket:
+    ticket_container = st.container()
 
 with tab_planner:
     planner_container = st.container()
@@ -132,13 +136,18 @@ with tab_reviewer:
 with tab_pr:
     pr_container = st.container()
 
-# ── Render current state (always) ────────────────────────────────────────────
+# ── Render current state (only when not actively streaming) ──────────────────
 with feed_container:
     if not st.session_state.events and not st.session_state.streaming:
         st.info("Waiting for events...")
-    for event in st.session_state.events:
-        if event.get("event_type") != "stream_end":
-            render_event(event)
+    if not st.session_state.streaming:
+        for event in st.session_state.events:
+            if event.get("event_type") != "stream_end":
+                render_event(event)
+
+with ticket_container:
+    if not st.session_state.streaming:
+        render_ticket_tab(st.session_state.run_state.get("ticket") or {})
 
 with planner_container:
     render_planner_tab(st.session_state.run_state.get("planner_output") or {})
@@ -180,6 +189,11 @@ if st.session_state.streaming:
             event_type = event.get("event_type", "")
             agent = event.get("agent", "")
             payload = event.get("payload") or {}
+
+            if event_type == "ticket_fetched":
+                st.session_state.run_state["ticket"] = payload
+                with ticket_container:
+                    render_ticket_tab(payload)
 
             if event_type == "agent_complete":
                 if agent == "planner":

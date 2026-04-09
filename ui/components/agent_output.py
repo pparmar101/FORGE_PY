@@ -3,6 +3,51 @@ from __future__ import annotations
 import streamlit as st
 
 
+def render_ticket_tab(ticket: dict) -> None:
+    if not ticket:
+        st.info("Jira ticket has not been fetched yet.")
+        return
+
+    summary = ticket.get("summary", "")
+    ticket_id = ticket.get("ticket_id", "")
+    issue_type = ticket.get("issue_type", "")
+    priority = ticket.get("priority", "")
+    status = ticket.get("status", "")
+    assignee = ticket.get("assignee") or "Unassigned"
+    labels = ticket.get("labels", [])
+    description = ticket.get("description", "")
+    comments = ticket.get("comments", [])
+
+    priority_colors = {"Highest": "red", "High": "orange", "Medium": "blue", "Low": "gray", "Lowest": "gray"}
+    priority_color = priority_colors.get(priority, "blue")
+
+    st.markdown(f"### 🎫 {ticket_id}")
+    st.markdown(f"**{summary}**")
+    st.divider()
+
+    col1, col2, col3, col4 = st.columns(4)
+    col1.markdown(f"**Type**  \n{issue_type}")
+    col2.markdown(f"**Priority**  \n:{priority_color}[{priority}]")
+    col3.markdown(f"**Status**  \n{status}")
+    col4.markdown(f"**Assignee**  \n{assignee}")
+
+    if labels:
+        st.markdown(" ".join(f"`{l}`" for l in labels))
+
+    st.divider()
+
+    if description:
+        st.markdown("**Description**")
+        st.markdown(description)
+        st.divider()
+
+    if comments:
+        st.markdown(f"**Comments ({len(comments)})**")
+        for i, c in enumerate(comments, 1):
+            with st.expander(f"Comment #{i}", expanded=False):
+                st.markdown(c)
+
+
 def render_planner_tab(planner_output: dict) -> None:
     if not planner_output:
         st.info("Planner has not run yet.")
