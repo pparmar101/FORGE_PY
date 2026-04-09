@@ -31,7 +31,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="FORGE",
-        description="Multi-agent AI development automation: Jira → Plan → Code → Review → PR",
+        description="Fully Orchestrated Retrieval Augmented & Generation Engine: Jira → Plan → Code → Review → PR",
         version="0.1.0",
         lifespan=lifespan,
     )

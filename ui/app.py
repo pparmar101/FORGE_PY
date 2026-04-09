@@ -43,7 +43,7 @@ if "history" not in st.session_state:
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.title("🚀 FORGE")
-    st.caption("Multi-Agent AI Dev Automation")
+    st.caption("Fully Orchestrated Retrieval Augmented Generation Engine")
     st.divider()
 
     ticket_id = st.text_input(
@@ -150,26 +150,30 @@ with ticket_container:
         render_ticket_tab(st.session_state.run_state.get("ticket") or {})
 
 with planner_container:
-    render_planner_tab(st.session_state.run_state.get("planner_output") or {})
+    if not st.session_state.streaming:
+        render_planner_tab(st.session_state.run_state.get("planner_output") or {})
 
 with coder_container:
-    render_coder_tab(
-        st.session_state.run_state.get("coder_output") or {},
-        iteration=st.session_state.run_state.get("iteration", 1),
-    )
+    if not st.session_state.streaming:
+        render_coder_tab(
+            st.session_state.run_state.get("coder_output") or {},
+            iteration=st.session_state.run_state.get("iteration", 1),
+        )
 
 with reviewer_container:
-    render_reviewer_tab(
-        st.session_state.run_state.get("reviewer_output") or {},
-        iteration=st.session_state.run_state.get("iteration", 1),
-    )
+    if not st.session_state.streaming:
+        render_reviewer_tab(
+            st.session_state.run_state.get("reviewer_output") or {},
+            iteration=st.session_state.run_state.get("iteration", 1),
+        )
 
 with pr_container:
-    render_pr_tab(
-        st.session_state.run_state.get("reviewer_output") or {},
-        pr_url=st.session_state.run_state.get("pr_url"),
-        branch_name=st.session_state.run_state.get("branch_name"),
-    )
+    if not st.session_state.streaming:
+        render_pr_tab(
+            st.session_state.run_state.get("reviewer_output") or {},
+            pr_url=st.session_state.run_state.get("pr_url"),
+            branch_name=st.session_state.run_state.get("branch_name"),
+        )
 
 # ── Streaming loop ────────────────────────────────────────────────────────────
 if st.session_state.streaming:
@@ -198,10 +202,16 @@ if st.session_state.streaming:
             if event_type == "agent_complete":
                 if agent == "planner":
                     st.session_state.run_state["planner_output"] = payload
+                    with planner_container:
+                        render_planner_tab(payload)
                 elif agent == "coder":
                     st.session_state.run_state["coder_output"] = payload
+                    with coder_container:
+                        render_coder_tab(payload, iteration=st.session_state.run_state.get("iteration", 1))
                 elif agent == "reviewer":
                     st.session_state.run_state["reviewer_output"] = payload
+                    with reviewer_container:
+                        render_reviewer_tab(payload, iteration=st.session_state.run_state.get("iteration", 1))
 
             if event_type == "run_complete":
                 st.session_state.run_state["pr_url"] = payload.get("pr_url")
@@ -211,6 +221,12 @@ if st.session_state.streaming:
                     if entry["run_id"] == run_id:
                         entry["status"] = "complete"
                         entry["pr_url"] = payload.get("pr_url")
+                with pr_container:
+                    render_pr_tab(
+                        st.session_state.run_state.get("reviewer_output") or {},
+                        pr_url=payload.get("pr_url"),
+                        branch_name=payload.get("branch_name"),
+                    )
                 st.session_state.streaming = False
 
             if event_type in ("error", "stream_end"):

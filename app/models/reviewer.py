@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Literal  # noqa: F401 — used by Issue.severity and ReviewerOutput.final_decision
 
 from pydantic import BaseModel
 
@@ -12,7 +12,7 @@ class Issue(BaseModel):
 
 
 class Risk(BaseModel):
-    category: Literal["performance", "security", "breaking_change", "reliability"]
+    category: str
     description: str
     mitigation: str
 
