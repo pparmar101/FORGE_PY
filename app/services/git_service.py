@@ -31,7 +31,10 @@ class GitService:
 
         if (self.workspace / ".git").exists():
             repo = git.Repo(self.workspace)
-            repo.remotes.origin.fetch()
+            try:
+                repo.git.execute(["git", "-c", "GIT_TERMINAL_PROMPT=0", "fetch", "origin"])
+            except Exception:
+                pass  # offline or credential issue — use local state
             return repo
 
         self.workspace.mkdir(parents=True, exist_ok=True)
@@ -42,10 +45,16 @@ class GitService:
         """Checkout base branch then create and switch to a new feature branch."""
         base = self.settings.default_base_branch
         repo.git.checkout(base)
-        try:
-            repo.git.pull("origin", base)
-        except Exception:
-            pass  # no remote or offline — continue with local state
+        # Only pull if the repo is remote — skip for local repos to avoid
+        # Windows Credential Manager popups on the HTTPS origin remote.
+        if not self._is_local_path():
+            try:
+                repo.git.execute([
+                    "git", "-c", "GIT_TERMINAL_PROMPT=0",
+                    "pull", "origin", base,
+                ])
+            except Exception:
+                pass  # no remote or offline — continue with local state
         # Delete local branch if it already exists from a previous run
         existing = [b.name for b in repo.branches]
         if branch_name in existing:
