@@ -10,10 +10,27 @@ API_BASE = os.getenv("FORGE_API_URL", "http://127.0.0.1:8000")
 
 
 def start_run(ticket_id: str) -> dict:
-    """POST /runs — returns {run_id, status}."""
-    response = httpx.post(f"{API_BASE}/runs", json={"ticket_id": ticket_id}, timeout=10)
-    response.raise_for_status()
-    return response.json()
+    """POST /runs — returns {run_id, status}.
+    Retries once after 3s to handle uvicorn mid-reload situations.
+    """
+    import time
+    for attempt in range(2):
+        try:
+            response = httpx.post(
+                f"{API_BASE}/runs",
+                json={"ticket_id": ticket_id},
+                timeout=30,
+            )
+            response.raise_for_status()
+            return response.json()
+        except (httpx.TimeoutException, httpx.ConnectError) as e:
+            if attempt == 0:
+                time.sleep(3)  # wait for uvicorn to finish reloading
+                continue
+            raise RuntimeError(
+                f"Backend not reachable at {API_BASE}. "
+                "Make sure uvicorn is running: uvicorn app.main:app --reload"
+            ) from e
 
 
 def get_run(run_id: str) -> dict:

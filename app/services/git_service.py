@@ -153,6 +153,48 @@ class GitService:
                     return "\n".join(lines)
         return "\n".join(lines)
 
+    def get_planner_context(self, planner_paths: list) -> str:
+        """
+        Read all source files from the planner folders defined in FORGE_INDEX.md
+        and return them as a concatenated string for the planner agent.
+        Only reads files with indexable extensions — skips binaries and build artefacts.
+        """
+        from app.services.rag_service import INDEXABLE_EXTENSIONS, SKIP_DIRS
+        import os
+
+        parts: list[str] = []
+
+        def _read_file(fpath: Path) -> None:
+            if fpath.suffix.lower() not in INDEXABLE_EXTENSIONS:
+                return
+            try:
+                content = fpath.read_text(encoding="utf-8", errors="replace")
+                if len(content) > 10000:
+                    content = content[:10000] + "\n... [truncated] ..."
+                try:
+                    rel = fpath.relative_to(self.workspace)
+                except ValueError:
+                    rel = fpath
+                parts.append(f"### {rel}\n```\n{content}\n```\n")
+            except Exception:
+                pass
+
+        for entry in planner_paths:
+            entry = Path(entry)
+            if not entry.exists():
+                continue
+            if entry.is_file():
+                # Individual file entry (e.g. HierarchyConstants.cs)
+                _read_file(entry)
+            else:
+                # Folder entry — walk recursively
+                for root, dirs, files in os.walk(entry):
+                    dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+                    for fname in files:
+                        _read_file(Path(root) / fname)
+
+        return "\n".join(parts)
+
     def get_repo_context(
         self, repo: git.Repo, impacted_files: list[ImpactedFile]
     ) -> str:

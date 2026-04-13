@@ -27,15 +27,41 @@ CRITICAL — Tech Stack & File Path Rules:
 - Never invent file paths. Every impacted file must exist in or be a logical addition to the repo structure shown.
 - Follow existing naming conventions (e.g. if controllers are in Controllers/, put new controllers there).
 
-CRITICAL — Minimise Changes / Reuse Before Creating:
-- Before adding a new class, enum, or method, search the repo structure for an existing one to extend.
-- If a feature (e.g. Publish) already exists, implement the inverse (e.g. Unpublish) by:
-  (a) adding an enum value to the existing operation/status enum, and
-  (b) adding a branch in the existing task processor — do NOT create a new processor.
+CRITICAL — ADDITIVE PLANNING ONLY — Never plan changes to existing functionality:
+- Your plan MUST describe only ADDITIVE changes: adding new methods, endpoints, properties,
+  enum values, or classes. You must NOT plan modifications to existing method bodies,
+  existing business logic, existing conditional branches, or existing return values.
+- Before creating anything new, look for an existing construct to extend:
+  (a) If a similar feature exists (e.g. Publish), implement the new one (e.g. Unpublish) by
+      adding an enum value to the existing enum AND adding a new branch/method — NOT by
+      modifying the existing branch.
+  (b) If an interface already has the needed shape, implement against it — do NOT modify it.
+  (c) Prefer adding a new method to an existing service/controller over editing existing methods.
+- For each impacted file, state in the reason whether you are ADDING or MODIFYING.
+  If MODIFYING, state exactly which new lines will be inserted and confirm no existing lines change.
 - Do NOT add new ADC task types, registries, stored procedures, or gateway contracts unless
   the existing ones are provably insufficient for the new operation.
-- Prefer adding a method to an existing service/controller over creating a new one.
+- NEVER create a new request/response DTO class if an existing model already carries the
+  required fields. Check the repo context and RAG snippets for existing DTOs first.
+  Example: if ConsolAlternateHierarchyTaskData has GroupId, TimeId, HierarchyId — use it
+  directly as the endpoint parameter instead of inventing a new UnpublishHierarchyRequest.
 - The number of impacted files should be the minimum necessary — avoid speculative changes.
+- ALWAYS include the full call chain in impacted_files. If a controller endpoint is added,
+  the service interface AND service implementation MUST also be in impacted_files so the coder
+  can add the matching method signatures and bodies. Never list only the controller.
+  Example chain: Controller → IReportingOrgChartService (interface) → ReportingOrgChartService (impl).
+
+CRITICAL — Jira Description is the Source of Truth:
+- The Jira ticket description defines WHAT to build. It is always the highest-priority input.
+- Retrieved code snippets (RAG context) show HOW existing code is structured — use them to
+  understand patterns only. Never let RAG context override or expand the scope of the Jira ticket.
+- If the Jira description is a product/UI requirement (mentions buttons, popups, user actions),
+  translate it into the corresponding backend API layer change — do NOT implement UI code.
+- NEVER produce SQL scripts, migration files, stored procedures, or database registration changes
+  unless the Jira description explicitly says "create SQL", "add migration", or "update database".
+- NEVER add ADC task type registry entries or handler registration unless explicitly asked.
+- If the retrieved code examples show complex ADC/SQL patterns, treat them as reference only —
+  do not copy that complexity into the plan unless the ticket demands it.
 
 Be precise and specific. Avoid vague steps. Your output will be used directly by a coding agent."""
 

@@ -39,29 +39,58 @@ COLLECTION_NAME = "forge_repo"
 FORGE_INDEX_FILE = "FORGE_INDEX.md"
 
 
-def _load_index_paths(repo_root: Path) -> list[Path] | None:
+def _load_forge_index(repo_root: Path) -> tuple[list[Path] | None, list[Path] | None]:
     """
-    Read FORGE_INDEX.md from the repo root and return the list of
-    absolute paths to index. Returns None if no config file found
-    (falls back to full repo walk).
+    Read FORGE_INDEX.md and return (planner_paths, coder_paths).
+
+    Lines prefixed with 'planner:' → read directly for planner context.
+    Lines prefixed with 'coder:'   → indexed into RAG for coder.
+    Unprefixed lines               → treated as coder paths (backward compat).
+
+    Returns (None, None) if no config file found.
     """
     config_file = repo_root / FORGE_INDEX_FILE
     if not config_file.exists():
-        # Walk up one level (workspace may point to a sub-folder like /source)
         config_file = repo_root.parent / FORGE_INDEX_FILE
     if not config_file.exists():
-        return None
+        return None, None
 
-    paths: list[Path] = []
+    planner_paths: list[Path] = []
+    coder_paths: list[Path] = []
+
     for line in config_file.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
             continue
-        # Paths in the file are relative to the repo root (parent of /source)
-        candidate = (repo_root.parent / line).resolve()
-        if candidate.exists():
-            paths.append(candidate)
-    return paths if paths else None
+        if line.startswith("planner:"):
+            raw = line[len("planner:"):].strip()
+            candidate = (repo_root.parent / raw).resolve()
+            if candidate.exists():
+                planner_paths.append(candidate)
+        elif line.startswith("coder:"):
+            raw = line[len("coder:"):].strip()
+            candidate = (repo_root.parent / raw).resolve()
+            if candidate.exists():
+                coder_paths.append(candidate)
+        else:
+            # Backward compat — unprefixed lines go to coder RAG
+            candidate = (repo_root.parent / line).resolve()
+            if candidate.exists():
+                coder_paths.append(candidate)
+
+    return (planner_paths or None), (coder_paths or None)
+
+
+def _load_index_paths(repo_root: Path) -> list[Path] | None:
+    """Return coder RAG paths only (backward-compat wrapper)."""
+    _, coder = _load_forge_index(repo_root)
+    return coder
+
+
+def load_planner_paths(repo_root: Path) -> list[Path]:
+    """Return the list of folders the planner should read directly."""
+    planner, _ = _load_forge_index(repo_root)
+    return planner or []
 
 
 class RAGService:
@@ -88,19 +117,27 @@ class RAGService:
     def index_repo(self) -> int:
         """
         Walk the configured project paths (from FORGE_INDEX.md) and upsert
-        changed file chunks. Falls back to full repo walk if no config found.
-        Returns the number of chunks upserted.
+        only CHANGED file chunks. Falls back to full repo walk if no config found.
+        Skips files whose content hash matches what is already in ChromaDB,
+        avoiding redundant OpenAI embedding API calls on unchanged files.
+        Returns the number of NEW chunks upserted (0 means fully cached).
         """
         index_paths = _load_index_paths(self._repo_path)
-        if index_paths:
-            roots = index_paths
-        else:
-            roots = [self._repo_path]
+        roots = index_paths if index_paths else [self._repo_path]
+
+        # Build a set of all chunk IDs already stored in ChromaDB.
+        # This is a single fast metadata-only fetch — no embeddings involved.
+        existing_ids: set[str] = set()
+        total_stored = self._collection.count()
+        if total_stored > 0:
+            # ChromaDB requires an explicit limit; fetch all stored IDs in one call.
+            stored = self._collection.get(include=[], limit=total_stored)
+            existing_ids = set(stored["ids"])
 
         chunks_upserted = 0
         for root in roots:
             for file_path in self._iter_source_files(root):
-                chunks_upserted += self._upsert_file(file_path)
+                chunks_upserted += self._upsert_file_if_changed(file_path, existing_ids)
         return chunks_upserted
 
     def query(self, text: str) -> str:
@@ -132,6 +169,11 @@ class RAGService:
     # ── Internal helpers ──────────────────────────────────────────────────────
 
     def _iter_source_files(self, root: Path):
+        if root.is_file():
+            # Individual file entry (e.g. HierarchyConstants.cs)
+            if root.suffix.lower() in INDEXABLE_EXTENSIONS:
+                yield root
+            return
         for dirpath, dirs, files in os.walk(root):
             dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
             for fname in files:
@@ -139,7 +181,12 @@ class RAGService:
                 if path.suffix.lower() in INDEXABLE_EXTENSIONS:
                     yield path
 
-    def _upsert_file(self, file_path: Path) -> int:
+    def _upsert_file_if_changed(self, file_path: Path, existing_ids: set[str]) -> int:
+        """
+        Upsert chunks for file_path only if any chunk is new or changed.
+        Chunk IDs encode a content hash, so identical content → same ID → already cached.
+        Returns the number of chunks actually sent to the embedding API (0 = cache hit).
+        """
         try:
             text = file_path.read_text(encoding="utf-8", errors="replace")
         except Exception:
@@ -155,14 +202,18 @@ class RAGService:
             chunk_hash = hashlib.md5(chunk_text.encode()).hexdigest()
             chunk_id = f"{rel_path}::chunk{idx}::{chunk_hash}"
 
+            # Skip chunks already stored with the same content hash
+            if chunk_id in existing_ids:
+                continue
+
             ids.append(chunk_id)
             documents.append(chunk_text)
             metadatas.append({"rel_path": rel_path, "chunk_idx": idx})
 
         if not ids:
-            return 0
+            return 0  # entire file unchanged — no API call made
 
-        # Upsert in batches to stay within OpenAI's 300k token/request limit
+        # Upsert only the new/changed chunks in batches
         batch_size = 50
         for i in range(0, len(ids), batch_size):
             self._collection.upsert(

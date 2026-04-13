@@ -59,27 +59,41 @@ class ForgeOrchestrator:
             repo = self.git.clone_or_open()
             repo_structure = await asyncio.to_thread(self.git.get_repo_structure)
 
-            # ── Step 3: RAG index + query for planner context ─────────────────
-            planner_rag_context = ""
+            # ── Step 3: RAG index (for coder only — planner uses file tree) ─────
+            # RAG is NOT passed to the planner. Giving retrieved code snippets to the
+            # planner causes it to mirror ADC/SQL patterns from context instead of
+            # following the Jira ticket, leading to hallucinated SQL registration scripts.
+            # The planner already has the full repo file tree for stack/path detection.
             rag = None
             if self.settings.rag_enabled:
                 state.status = RunStatus.INDEXING
-                await emit(RunEvent(event_type="status_change", agent="system",
-                                    status=RunStatus.INDEXING,
-                                    payload={"message": "Indexing repo for RAG (first run may take a moment)..."}))
                 rag = RAGService(self.settings, self.git.workspace)
                 indexed = await asyncio.to_thread(rag.index_repo)
+                # Single status_change event — avoids duplicate "Indexing" in UI
+                index_msg = (
+                    f"RAG index ready — {indexed} new chunks indexed."
+                    if indexed > 0
+                    else "RAG index ready — fully cached, no changes detected."
+                )
                 await emit(RunEvent(event_type="status_change", agent="system",
                                     status=RunStatus.INDEXING,
-                                    payload={"message": f"RAG index ready — {indexed} chunks indexed."}))
-                planner_rag_query = f"{ticket.summary}\n{ticket.description}"
-                planner_rag_context = await asyncio.to_thread(rag.query, planner_rag_query)
+                                    payload={"message": index_msg}))
 
-            # ── Step 4: Planner (with repo structure + RAG context) ───────────
+            # ── Step 4: Planner (repo structure + direct file reads from planner folders)
             await emit(_status_event(RunStatus.PLANNING, "planner"))
             state.status = RunStatus.PLANNING
 
-            plan = await self.planner.run(ticket, repo_structure=repo_structure, rag_context=planner_rag_context)
+            from app.services.rag_service import load_planner_paths
+            planner_paths = load_planner_paths(self.git.workspace)
+            planner_context = await asyncio.to_thread(
+                self.git.get_planner_context, planner_paths
+            )
+
+            plan = await self.planner.run(
+                ticket,
+                repo_structure=repo_structure,
+                rag_context=planner_context,
+            )
             state.planner_output = plan
             await emit(RunEvent(
                 event_type="agent_complete",

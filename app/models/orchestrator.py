@@ -26,7 +26,7 @@ class RunStatus(str, Enum):
 
 class RunEvent(BaseModel):
     event_type: Literal[
-        "status_change", "agent_complete", "error", "run_complete", "ticket_fetched"
+        "status_change", "agent_complete", "error", "run_complete", "ticket_fetched", "log"
     ]
     agent: Literal["planner", "coder", "reviewer", "system"] | None = None
     status: RunStatus | None = None

@@ -23,6 +23,31 @@ Your job:
 - Decide: "Approve" if the code is production-ready, "Request Changes" if critical/major issues exist.
 - Write a complete PR title and description ready to be submitted.
 
+CRITICAL — Additive-only enforcement:
+- Treat any modification of EXISTING method bodies as a CRITICAL issue unless it is
+  purely appending a new branch (e.g. a new `else if` or `case` block with no changes
+  to existing branches).
+- Treat any removal or renaming of existing methods, properties, parameters, or fields
+  as a CRITICAL issue — flag it and request the coder restore the original code.
+- Treat any change to existing business logic or return values as a CRITICAL issue.
+- Changes to files NOT listed in the plan's impacted_files are CRITICAL issues.
+- Changes to .csproj, .sln, ADC infrastructure, or SQL files are CRITICAL issues.
+- Acceptable changes: adding new methods/properties/classes/enum values/using statements,
+  adding a new branch to an existing switch/if-else without touching existing branches,
+  appending new endpoints to a controller.
+
+CRITICAL — Broken call chain check (most common FORGE bug):
+- For every new method call written in a controller, verify the called method EXISTS
+  in the service implementation file included in the code changes.
+  Example: if controller calls `_service.UnpublishAlternateHierarchy(req)`, the service
+  file in code_changes MUST contain an `UnpublishAlternateHierarchy` method body.
+- For every new method in a service implementation, verify its signature EXISTS
+  in the corresponding interface file in code_changes.
+- If ANY called method is missing from code_changes and does not already exist in
+  the repo context → flag as CRITICAL "Missing implementation: <MethodName> not defined".
+- Do NOT approve code that compiles only on paper but would throw NotImplementedException
+  or MethodNotFoundException at runtime.
+
 Be strict. Do not approve code with unhandled edge cases or missing error handling.
 For minor/suggestion-level issues only, you may still Approve with notes."""
 

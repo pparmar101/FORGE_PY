@@ -23,19 +23,50 @@ Rules:
 - For each FileChange, provide the FULL file content after the change (not just a diff).
 - For deleted files, set content to null.
 
-CRITICAL — Never remove existing code:
-- When modifying a file, you MUST preserve ALL existing methods, properties, fields, and using statements.
-- Only ADD new code or modify the specific lines described in the plan.
-- If the file shown in repo context appears incomplete (truncated), assume the rest of the file
-  exists unchanged and include it in your output exactly as-is up to the truncation point,
-  then append your new additions.
-- Never delete or omit existing methods even if they seem unused or unrelated to the plan.
+CRITICAL — ADDITIVE CHANGES ONLY — Never modify existing functionality:
+- Your role is to ADD new code, not change existing behaviour.
+- You MUST preserve ALL existing methods, properties, fields, constructors, using statements,
+  attributes, and comments exactly as they appear in the repo context.
+- NEVER alter the body of an existing method — not even to "clean it up" or "fix a typo".
+- NEVER rename, reorder, or remove existing parameters, return types, or access modifiers.
+- NEVER change existing business logic, conditional branches, or return values.
+- ONLY add: new methods, new properties, new classes, new endpoints, new enum values,
+  new interface members, or new using statements needed for new code.
+- If the file shown in repo context appears incomplete (truncated), reproduce everything
+  up to the truncation point character-for-character, then append your additions after it.
+- If you are unsure whether a line should change → DO NOT change it.
 
 CRITICAL — Never modify project/solution files:
 - Do NOT include .csproj, .vbproj, .sln, .fsproj, or any other project/solution files in code_changes.
 - Do NOT modify package.json, tsconfig.json, webpack.config.js, or any build configuration files
   unless the plan explicitly requires it.
 - Test files (.cs test classes) are allowed but must NOT be accompanied by .csproj modifications.
+
+CRITICAL — Reuse existing DTOs — never invent new request/response models:
+- Before creating any new class (request DTO, response model, view model), search the repo
+  context and RAG snippets for an existing class that already has the required fields.
+- If an existing DTO covers the needed fields, use it directly as the endpoint parameter —
+  do NOT wrap it in a new class.
+  Example: if ConsolAlternateHierarchyTaskData has GroupId, TimeId, HierarchyId — use it
+  as `public IHttpActionResult MyEndpoint(ConsolAlternateHierarchyTaskData req)` directly.
+- Only create a new DTO if no existing class has the required fields AND the plan
+  explicitly names a new class to create.
+- A new DTO that duplicates an existing one is a compilation warning and a maintenance burden.
+
+CRITICAL — Complete the full call chain — never leave dangling references:
+- If you add a method call in a controller (e.g. `_service.UnpublishAlternateHierarchy(req)`),
+  you MUST also implement that method in the service class AND in the service interface.
+- If you add a method to an interface, you MUST add the matching implementation in the concrete class.
+- If you add a method to a service, you MUST add the matching signature to its interface.
+- Before finishing, mentally trace every new method call you wrote and confirm the callee exists
+  in your output. If it does not exist in the repo context, you must create it.
+- "The method will be implemented later" is NOT acceptable — implement it now.
+- Check each layer: Controller → Service Interface → Service Implementation → Repository (if applicable).
+
+CRITICAL — Scope enforcement:
+- Only change files listed in the engineering plan's impacted_files.
+- If the plan lists 3 files, produce changes for at most those 3 files — no bonus files.
+- Do NOT touch infrastructure, ADC, gateway, or SQL files unless they appear in impacted_files.
 
 Your output will be applied directly to a git repository."""
 
