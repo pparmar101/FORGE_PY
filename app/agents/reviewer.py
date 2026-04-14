@@ -10,46 +10,37 @@ from app.models.reviewer import ReviewerOutput
 if TYPE_CHECKING:
     from app.config import Settings
 
-SYSTEM_PROMPT = """You are a Staff Engineer performing a thorough code review.
+SYSTEM_PROMPT = """You are a Staff Engineer performing a code review based on file diffs.
 
 You will receive:
-1. An engineering plan (DeveloperNotes, QANotes, TaskBreakdown)
-2. Proposed code changes (FileChanges, Tests, Commits)
+1. An engineering plan (developer notes and impacted files)
+2. Proposed code changes as diff summaries — NOT full file content.
+   Each change includes: file_path, operation (create/modify/delete), and a diff_summary
+   describing what was added or changed in that file.
 
 Your job:
-- Verify the implementation matches the plan.
-- Identify bugs, edge cases missed, and code quality issues.
-- Flag performance, security, and breaking-change risks.
-- Decide: "Approve" if the code is production-ready, "Request Changes" if critical/major issues exist.
+- Base your entire review on the diff summaries provided. Do NOT ask for full file content —
+  it is not available. Make your best assessment from the diffs.
+- Verify the diffs match what the plan describes.
+- Flag scope issues: files touched that are NOT in the plan's impacted_files.
+- Flag obvious structural problems visible in the diffs:
+  e.g. a controller diff adds a service call but no service file diff exists in the changes.
+- Flag .csproj, .sln, or SQL file modifications as issues.
+- Decide: "Approve" if the diffs look consistent with the plan, "Request Changes" only if
+  there is a clear, specific problem visible in the diffs themselves.
 - Write a complete PR title and description ready to be submitted.
 
-CRITICAL — Additive-only enforcement:
-- Treat any modification of EXISTING method bodies as a CRITICAL issue unless it is
-  purely appending a new branch (e.g. a new `else if` or `case` block with no changes
-  to existing branches).
-- Treat any removal or renaming of existing methods, properties, parameters, or fields
-  as a CRITICAL issue — flag it and request the coder restore the original code.
-- Treat any change to existing business logic or return values as a CRITICAL issue.
-- Changes to files NOT listed in the plan's impacted_files are CRITICAL issues.
-- Changes to .csproj, .sln, ADC infrastructure, or SQL files are CRITICAL issues.
-- Acceptable changes: adding new methods/properties/classes/enum values/using statements,
-  adding a new branch to an existing switch/if-else without touching existing branches,
-  appending new endpoints to a controller.
+CRITICAL — Additive-only enforcement (based on diffs):
+- If a diff summary describes removal or replacement of existing logic → flag as CRITICAL.
+- If a diff summary describes modification of an existing method body → flag as CRITICAL.
+- Acceptable: diffs that describe adding new methods, new endpoints, new properties,
+  new enum values, or new interface members.
 
-CRITICAL — Broken call chain check (most common FORGE bug):
-- For every new method call written in a controller, verify the called method EXISTS
-  in the service implementation file included in the code changes.
-  Example: if controller calls `_service.UnpublishAlternateHierarchy(req)`, the service
-  file in code_changes MUST contain an `UnpublishAlternateHierarchy` method body.
-- For every new method in a service implementation, verify its signature EXISTS
-  in the corresponding interface file in code_changes.
-- If ANY called method is missing from code_changes and does not already exist in
-  the repo context → flag as CRITICAL "Missing implementation: <MethodName> not defined".
-- Do NOT approve code that compiles only on paper but would throw NotImplementedException
-  or MethodNotFoundException at runtime.
+CRITICAL — Broken call chain (visible from diffs):
+- If a controller diff adds a call to e.g. `_service.UnpublishAlternateHierarchy()` but
+  there is NO corresponding service or interface file in the change list → flag as CRITICAL.
 
-Be strict. Do not approve code with unhandled edge cases or missing error handling.
-For minor/suggestion-level issues only, you may still Approve with notes."""
+For minor/suggestion-level issues, Approve with notes."""
 
 
 class ReviewerAgent(BaseAgent):
@@ -62,14 +53,36 @@ class ReviewerAgent(BaseAgent):
             system_prompt=SYSTEM_PROMPT,
             user_content=user_content,
             output_model=ReviewerOutput,
+            max_tokens_override=self.settings.openai_max_tokens_reviewer,
         )
 
 
 def _format_input(plan: PlannerOutput, code: CoderOutput) -> str:
+    # Strip full file content from code changes — the reviewer only needs the
+    # diff summary, file path, and operation to assess correctness vs the plan.
+    # Sending full file content (5–10k tokens per file) causes excessive latency.
+    trimmed_changes = [
+        {
+            "file_path": fc.file_path,
+            "operation": fc.operation,
+            "diff_summary": fc.diff_summary,
+        }
+        for fc in code.code_changes
+    ]
+    trimmed_code = {
+        "code_changes": trimmed_changes,
+        "commits": [c.model_dump() for c in code.commits],
+        "implementation_notes": code.implementation_notes,
+        # tests: include file paths only, not full test content
+        "tests": [{"file_path": t.file_path} for t in code.tests],
+    }
+
+    import json
+    plan_for_reviewer = {"developer_notes": plan.developer_notes.model_dump()}
     return f"""=== ENGINEERING PLAN ===
-{plan.model_dump_json(indent=2)}
+{json.dumps(plan_for_reviewer, indent=2)}
 
-=== PROPOSED CODE CHANGES ===
-{code.model_dump_json(indent=2)}
+=== PROPOSED CODE CHANGES (summaries — full content applied separately) ===
+{json.dumps(trimmed_code, indent=2)}
 
-Review the code against the plan and produce your review output."""
+Review the code changes against the plan and produce your review output."""

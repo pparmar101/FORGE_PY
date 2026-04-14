@@ -50,10 +50,12 @@ class Settings(BaseSettings):
 
     # OpenAI Model
     openai_model: str = "gpt-4.5-preview"
-    openai_max_tokens: int = 32768
+    openai_max_tokens: int = 32768          # coder (needs full file output)
+    openai_max_tokens_planner: int = 8192   # plan JSON only, no code
+    openai_max_tokens_reviewer: int = 4096  # decision + notes only
 
     # Orchestrator
-    max_coder_iterations: int = 2
+    max_coder_iterations: int = 0
 
     # RAG
     rag_enabled: bool = True

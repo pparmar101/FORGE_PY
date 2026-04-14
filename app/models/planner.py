@@ -18,30 +18,6 @@ class DeveloperNotes(BaseModel):
     assumptions: list[str]
 
 
-class TestCase(BaseModel):
-    description: str
-    test_type: Literal["positive", "negative", "regression"]
-    steps: list[str]
-    expected_result: str
-
-
-class QANotes(BaseModel):
-    test_cases: list[TestCase]
-    regression_areas: list[str]
-
-
-class Task(BaseModel):
-    order: int
-    title: str
-    description: str
-    estimated_complexity: Literal["low", "medium", "high"]
-
-
-class TaskBreakdown(BaseModel):
-    tasks: list[Task]
-
 
 class PlannerOutput(BaseModel):
     developer_notes: DeveloperNotes
-    qa_notes: QANotes
-    task_breakdown: TaskBreakdown

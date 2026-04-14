@@ -126,8 +126,11 @@ Use them to understand existing patterns, conventions, and related logic:
 
     ticket_line = f"Jira Ticket ID: {ticket_id}\n" if ticket_id else ""
 
+    import json
+    plan_for_coder = {"developer_notes": plan.developer_notes.model_dump()}
+
     return f"""{feedback_section}{ticket_line}=== ENGINEERING PLAN ===
-{plan.model_dump_json(indent=2)}
+{json.dumps(plan_for_coder, indent=2)}
 
 === REPOSITORY CONTEXT (Impacted Files) ===
 {repo_context if repo_context else "(No repo context available — this may be a new repository)"}

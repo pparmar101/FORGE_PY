@@ -25,6 +25,7 @@ class BaseAgent:
         system_prompt: str,
         user_content: str,
         output_model: type[T],
+        max_tokens_override: int | None = None,
     ) -> T:
         schema = json.dumps(output_model.model_json_schema(), indent=2)
         full_system = (
@@ -34,9 +35,10 @@ class BaseAgent:
             f"Schema:\n{schema}"
         )
 
+        max_tokens = max_tokens_override if max_tokens_override else self.max_tokens
         response = await self.client.chat.completions.create(
             model=self.model,
-            max_completion_tokens=self.max_tokens,
+            max_completion_tokens=max_tokens,
             response_format={"type": "json_object"},
             messages=[
                 {"role": "system", "content": full_system},

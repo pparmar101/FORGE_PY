@@ -12,10 +12,8 @@ if TYPE_CHECKING:
 SYSTEM_PROMPT = """You are a Senior Tech Lead analyzing a Jira ticket to create a precise engineering plan.
 
 Your job is to produce:
-- DeveloperNotes: step-by-step implementation plan, impacted files (with change_type and reason), \
-API changes, DB changes, edge cases, and assumptions.
-- QANotes: positive/negative/regression test cases and regression risk areas.
-- TaskBreakdown: ordered tasks with title, description, and complexity estimate.
+- DeveloperNotes: step-by-step implementation plan, impacted files (with change_type and reason),
+  API changes, DB changes, edge cases, and assumptions.
 
 CRITICAL — Tech Stack & File Path Rules:
 - You will be given a REPOSITORY STRUCTURE snapshot showing the actual files and folders in the codebase.
@@ -76,6 +74,7 @@ class PlannerAgent(BaseAgent):
             system_prompt=SYSTEM_PROMPT,
             user_content=user_content,
             output_model=PlannerOutput,
+            max_tokens_override=self.settings.openai_max_tokens_planner,
         )
 
 

@@ -57,19 +57,39 @@ class ForgeOrchestrator:
 
             # ── Step 2: Clone/open repo first (planner needs repo structure) ───
             repo = self.git.clone_or_open()
+
+            # Always reset to base branch before reading any context.
+            # Without this, ticket-2 reads context from ticket-1's committed branch,
+            # causing FORGE to see already-implemented code as "existing" and
+            # re-implement it or add out-of-scope changes from the previous run.
+            base = self.settings.default_base_branch
+            try:
+                repo.git.checkout(base)
+            except Exception:
+                pass  # already on base or detached HEAD — continue
+
             repo_structure = await asyncio.to_thread(self.git.get_repo_structure)
 
-            # ── Step 3: RAG index (for coder only — planner uses file tree) ─────
-            # RAG is NOT passed to the planner. Giving retrieved code snippets to the
-            # planner causes it to mirror ADC/SQL patterns from context instead of
-            # following the Jira ticket, leading to hallucinated SQL registration scripts.
-            # The planner already has the full repo file tree for stack/path detection.
+            # ── Step 3 + 4: RAG index and planner context read in PARALLEL ────────
+            # The planner does NOT use RAG, so both can run at the same time.
+            # This saves the full RAG indexing time (15–60s on first run) from the
+            # critical path before planning starts.
+            from app.services.rag_service import load_planner_paths
+
             rag = None
+            indexed = 0
+            planner_paths = load_planner_paths(self.git.workspace)
+
             if self.settings.rag_enabled:
                 state.status = RunStatus.INDEXING
-                rag = RAGService(self.settings, self.git.workspace)
-                indexed = await asyncio.to_thread(rag.index_repo)
-                # Single status_change event — avoids duplicate "Indexing" in UI
+                rag_svc = RAGService(self.settings, self.git.workspace)
+
+                # Run RAG index and planner file reads concurrently
+                rag_task = asyncio.to_thread(rag_svc.index_repo)
+                ctx_task = asyncio.to_thread(self.git.get_planner_context, planner_paths)
+                indexed, planner_context = await asyncio.gather(rag_task, ctx_task)
+                rag = rag_svc
+
                 index_msg = (
                     f"RAG index ready — {indexed} new chunks indexed."
                     if indexed > 0
@@ -78,16 +98,14 @@ class ForgeOrchestrator:
                 await emit(RunEvent(event_type="status_change", agent="system",
                                     status=RunStatus.INDEXING,
                                     payload={"message": index_msg}))
+            else:
+                planner_context = await asyncio.to_thread(
+                    self.git.get_planner_context, planner_paths
+                )
 
-            # ── Step 4: Planner (repo structure + direct file reads from planner folders)
+            # ── Step 4: Planner ───────────────────────────────────────────────
             await emit(_status_event(RunStatus.PLANNING, "planner"))
             state.status = RunStatus.PLANNING
-
-            from app.services.rag_service import load_planner_paths
-            planner_paths = load_planner_paths(self.git.workspace)
-            planner_context = await asyncio.to_thread(
-                self.git.get_planner_context, planner_paths
-            )
 
             plan = await self.planner.run(
                 ticket,

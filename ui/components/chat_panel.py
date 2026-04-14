@@ -116,9 +116,6 @@ def _render_planner_summary(payload: dict) -> None:
         for f in files:
             st.markdown(f"- `{f.get('path')}` — {f.get('change_type')} ({f.get('reason')})")
 
-    tasks = payload.get("task_breakdown", {}).get("tasks", [])
-    if tasks:
-        st.markdown(f"**Tasks:** {len(tasks)} tasks identified")
 
 
 def _render_coder_summary(payload: dict) -> None:

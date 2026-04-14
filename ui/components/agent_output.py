@@ -54,8 +54,6 @@ def render_planner_tab(planner_output: dict) -> None:
         return
 
     dev = planner_output.get("developer_notes", {})
-    qa = planner_output.get("qa_notes", {})
-    tasks = planner_output.get("task_breakdown", {}).get("tasks", [])
 
     with st.expander("🗺️ Developer Notes", expanded=True):
         steps = dev.get("step_by_step_plan", [])
@@ -85,33 +83,6 @@ def render_planner_tab(planner_output: dict) -> None:
                 for item in items:
                     st.markdown(f"- {item}")
 
-    with st.expander("🧪 QA Notes"):
-        for tc in qa.get("test_cases", []):
-            badge = {"positive": "✅", "negative": "❌", "regression": "🔄"}.get(
-                tc.get("test_type", ""), "•"
-            )
-            st.markdown(f"{badge} **{tc.get('description', '')}**")
-            for step in tc.get("steps", []):
-                st.markdown(f"  - {step}")
-            st.caption(f"Expected: {tc.get('expected_result', '')}")
-            st.divider()
-
-        reg = qa.get("regression_areas", [])
-        if reg:
-            st.markdown("**Regression Risk Areas:**")
-            for area in reg:
-                st.markdown(f"- {area}")
-
-    with st.expander("📋 Task Breakdown"):
-        for task in sorted(tasks, key=lambda t: t.get("order", 0)):
-            complexity = task.get("estimated_complexity", "medium")
-            color = {"low": "green", "medium": "orange", "high": "red"}.get(complexity, "gray")
-            st.markdown(
-                f"**{task.get('order')}. {task.get('title')}** "
-                f":{color}[{complexity.upper()}]"
-            )
-            st.markdown(task.get("description", ""))
-            st.divider()
 
 
 def render_coder_tab(coder_output: dict, iteration: int = 1) -> None:
